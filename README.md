@@ -1,6 +1,6 @@
-# NovoStiloWeb
+# LsBarber
 
-NovoStiloWeb é um sistema de gestão desenvolvido exclusivamente para a **Barbearia Novo Stilo**, criado para centralizar e automatizar toda a operação do negócio em uma única plataforma. O projeto foi desenvolvido sob medida para atender às necessidades da empresa, com foco em desempenho, organização, facilidade de uso e escalabilidade.
+LsBarber é um sistema de gestão criado para centralizar e automatizar toda a operação do negócio em uma única plataforma. O projeto foi desenvolvido sob medida para atender às necessidades da empresa, com foco em desempenho, organização, facilidade de uso e escalabilidade.
 
 A plataforma permite o gerenciamento completo da agenda, clientes, profissionais, serviços, vendas, estoque, fluxo de caixa e relatórios, proporcionando maior controle sobre o funcionamento da barbearia e auxiliando na tomada de decisões.
 
@@ -69,8 +69,6 @@ A plataforma permite o gerenciamento completo da agenda, clientes, profissionais
 - Lucide Icons
 
 ## 🎯 Sobre o projeto
-
-O NovoStiloWeb foi desenvolvido como um **software exclusivo** para a **Barbearia Novo Stilo**, atendendo às necessidades específicas da empresa. Diferentemente de uma plataforma SaaS, este sistema foi projetado sob medida, considerando o fluxo de trabalho, as regras de negócio e os processos internos da barbearia.
 
 Seu principal objetivo é substituir controles manuais e planilhas por uma solução moderna, intuitiva e segura, permitindo que toda a gestão da empresa seja realizada em um único ambiente.
 
