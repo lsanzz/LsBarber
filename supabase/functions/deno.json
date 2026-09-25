@@ -1,0 +1,8 @@
+{
+  "nodeModulesDir": "none",
+  "compilerOptions": { "strict": true },
+  "tasks": {
+    "check": "deno check billing/index.ts stripe-webhook/index.ts",
+    "test": "deno test --allow-env billing_test.ts"
+  }
+}

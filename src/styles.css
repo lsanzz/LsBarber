@@ -1,0 +1,136 @@
+@import "tailwindcss" source(none);
+@source "../src";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Shared component motion: Rare UI, shadcn/Radix and Transitions.dev references. */
+.animated-value-digits{display:inline-flex;font-variant-numeric:tabular-nums;white-space:pre}
+.animated-digit{display:inline-block;overflow:hidden;vertical-align:bottom;line-height:1.25}
+.animated-digit>span{display:inline-block}
+.motion-choices button{position:relative;isolation:isolate}
+.motion-choices button .choice-indicator{position:absolute;inset:0;z-index:-1;background:#202721;border-radius:5px;margin:0}
+.motion-choices button .choice-content{display:inline-flex;align-items:center;gap:9px;color:inherit;font-size:inherit;margin:0}
+.sales-page .motion-choices button[aria-pressed=true]{background:transparent}
+.sales-page .sales-billing button[aria-pressed=true]>.choice-content{color:white}
+.app-nav-link{position:relative;isolation:isolate}
+.app-nav-indicator{position:absolute;inset:0;z-index:-1;border-radius:8px;background:var(--sidebar-accent);border-left:2px solid var(--gold)}
+.app-nav-link>svg{transition:transform 180ms ease-out}
+.app-nav-link:hover>svg{transform:translateX(2px) rotate(-6deg)}
+.ui-button{transition:transform 120ms ease-out,background-color 120ms,box-shadow 120ms}
+.ui-button:active:not(:disabled){transform:scale(.97)}
+.ui-button:focus-visible,.app-shell a:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+.ui-card{transition:border-color 180ms,box-shadow 180ms}
+.ui-card:hover{border-color:color-mix(in oklab,var(--gold) 30%,var(--border))}
+.ui-dialog-overlay{position:fixed;inset:0;z-index:50;background:#0008;backdrop-filter:blur(3px);animation:ui-overlay-in 180ms ease-out}
+.ui-dialog-content{position:fixed;top:50%;left:50%;translate:-50% -50%;z-index:51;width:min(512px,calc(100vw - 32px));max-height:90dvh;overflow-y:auto;animation:ui-dialog-in 220ms cubic-bezier(.16,1,.3,1);outline:none}
+@keyframes ui-dialog-in{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes ui-overlay-in{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.ui-dialog-content,.ui-dialog-overlay{animation:none}.ui-button,.ui-card,.app-nav-link>svg{transition:none}.ui-button:active:not(:disabled),.app-nav-link:hover>svg{transform:none}}
+
+@theme inline {
+  --font-display: "Playfair Display", "Georgia", serif;
+  --font-sans: "Inter", system-ui, sans-serif;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-glow: var(--primary-glow);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-gold: var(--gold);
+  --color-gold-foreground: var(--gold-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
+  --shadow-elegant: 0 10px 40px -12px color-mix(in oklab, var(--primary) 35%, transparent);
+  --shadow-soft: 0 4px 20px -8px color-mix(in oklab, var(--foreground) 12%, transparent);
+}
+
+:root {
+  --radius: 0.75rem;
+
+  /* Premium dark-charcoal salon palette with gold accent */
+  --background: oklch(0.985 0.003 80);
+  --foreground: oklch(0.18 0.012 60);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.012 60);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.012 60);
+
+  --primary: oklch(0.22 0.015 60);
+  --primary-foreground: oklch(0.97 0.01 80);
+  --primary-glow: oklch(0.32 0.02 60);
+
+  --secondary: oklch(0.96 0.008 70);
+  --secondary-foreground: oklch(0.22 0.015 60);
+
+  --muted: oklch(0.95 0.006 75);
+  --muted-foreground: oklch(0.5 0.012 60);
+
+  --accent: oklch(0.93 0.02 75);
+  --accent-foreground: oklch(0.22 0.015 60);
+
+  --gold: oklch(0.74 0.13 75);
+  --gold-foreground: oklch(0.18 0.012 60);
+
+  --destructive: oklch(0.6 0.22 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --success: oklch(0.62 0.14 155);
+  --success-foreground: oklch(0.98 0 0);
+  --warning: oklch(0.78 0.15 75);
+  --warning-foreground: oklch(0.2 0.01 60);
+
+  --border: oklch(0.9 0.008 70);
+  --input: oklch(0.9 0.008 70);
+  --ring: oklch(0.74 0.13 75);
+
+  --sidebar: oklch(0.18 0.012 60);
+  --sidebar-foreground: oklch(0.92 0.01 75);
+  --sidebar-accent: oklch(0.24 0.015 60);
+  --sidebar-accent-foreground: oklch(0.98 0.01 80);
+  --sidebar-border: oklch(0.28 0.015 60);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html, body {
+    font-family: var(--font-sans);
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+}

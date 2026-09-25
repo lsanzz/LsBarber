@@ -1,0 +1,7 @@
+[functions.billing]
+# JWT is verified explicitly via auth.getUser in the handler.
+verify_jwt = false
+
+[functions.stripe-webhook]
+# Stripe signature is verified against the raw body.
+verify_jwt = false
