@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { lazy, Suspense } from "react";
 import {
   Outlet,
   Link,
@@ -7,7 +8,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 
-import { AppShell } from "@/components/AppShell";
+const AppAccessGate = lazy(() => import("@/components/AppAccessGate").then(module => ({ default: module.AppAccessGate })));
 
 function NotFoundComponent() {
   return (
@@ -77,7 +78,7 @@ function RootComponent() {
   const isPresentation = useRouterState({ select: (state) => ['/apresentacao', '/cadastro', '/checkout', '/confirmacao'].includes(state.location.pathname.replace(/\/$/, '')) });
   return (
     <QueryClientProvider client={queryClient}>
-      {isPresentation ? <Outlet /> : <AppShell />}
+      {isPresentation ? <Outlet /> : <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-background px-4 text-sm text-muted-foreground" role="status">Carregando seu painel…</div>}><AppAccessGate /></Suspense>}
     </QueryClientProvider>
   );
 }

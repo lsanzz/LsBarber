@@ -1,11 +1,13 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard, CalendarDays, Users, Scissors, UserCog,
-  Wallet, Package, BarChart3, Settings, Sparkles, Menu, X,
+  Wallet, Package, BarChart3, Settings, Sparkles, Menu, X, CreditCard, LogOut,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { LayoutGroup, motion, useReducedMotion } from 'motion/react';
-import { initSupabaseSync, useStore, useSupabaseSyncStatus } from "@/lib/store";
+import { exportWorkspaceData, flushPendingWorkspace, retrySupabaseSave, useStore, useSupabaseSyncStatus } from "@/lib/store";
+import { billingEnabled } from '@/lib/purchase';
+import { supabase } from '@/lib/supabase';
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -17,19 +19,36 @@ const nav = [
   { to: "/estoque", label: "Estoque", icon: Package },
   { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
+  { to: "/assinatura", label: "Assinatura", icon: CreditCard },
 ] as const;
 
 export function AppShell() {
   const router = useRouterState();
   const path = router.location.pathname;
   const [open, setOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState('');
   const salonName = useStore((s) => s.settings.name);
   const sync = useSupabaseSyncStatus();
   const reduceMotion = useReducedMotion();
 
-  useEffect(() => {
-    void initSupabaseSync();
-  }, []);
+  async function signOutSafely() {
+    if (signingOut || !supabase) return;
+    setSigningOut(true);
+    setSignOutError('');
+    try {
+      if (!await flushPendingWorkspace()) {
+        setSignOutError('Ainda há alterações sem confirmação de gravação. Não saímos da conta. Tente salvar ou baixe uma cópia dos dados antes de sair.');
+        return;
+      }
+      const { error } = await supabase.auth.signOut();
+      if (error) setSignOutError('Não foi possível sair da conta. Tente novamente.');
+    } catch {
+      setSignOutError('Não foi possível confirmar a gravação dos dados. A conta continua aberta; tente novamente.');
+    } finally {
+      setSigningOut(false);
+    }
+  }
 
   const syncLabel =
     sync.status === "conectado"
@@ -61,7 +80,7 @@ export function AppShell() {
           </div>
         </div>
         <LayoutGroup id="app-sidebar"><nav aria-label="Menu do sistema" className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {nav.map(({ to, label, icon: Icon }) => {
+          {nav.filter(item => billingEnabled || item.to !== '/assinatura').map(({ to, label, icon: Icon }) => {
             const active = to === "/" ? path === "/" : path.startsWith(to);
             return (
               <Link
@@ -84,7 +103,8 @@ export function AppShell() {
           })}
         </nav></LayoutGroup>
         <div className="px-6 py-4 border-t border-sidebar-border text-xs text-sidebar-foreground/60">
-          Sistema LsBarber
+          <span>Sistema LsBarber</span>
+          {billingEnabled && <><button type="button" onClick={() => void signOutSafely()} disabled={signingOut} className="mt-3 flex items-center gap-2 rounded-md px-2 py-2 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:opacity-60"><LogOut size={14} /> {signingOut ? 'Conferindo gravação…' : 'Sair da conta'}</button>{signOutError && <p role="alert" className="mt-2 text-xs leading-5 text-amber-200">{signOutError}</p>}</>}
         </div>
       </aside>
 
@@ -123,6 +143,7 @@ export function AppShell() {
             </div>
           </div>
         </header>
+        {sync.status === 'erro' && <div className="flex flex-wrap items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive" role="alert"><span>{sync.message}</span><div className="flex gap-3"><button type="button" onClick={exportWorkspaceData} className="underline underline-offset-2">Baixar cópia</button><button type="button" onClick={sync.conflict ? () => window.location.reload() : retrySupabaseSave} className="shrink-0 underline underline-offset-2">{sync.conflict ? 'Recarregar' : 'Tentar salvar'}</button></div></div>}
         <main className="flex-1 p-4 lg:p-8 overflow-x-hidden">
           <motion.div key={path} initial={reduceMotion ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : .24, ease: 'easeOut' }}><Outlet /></motion.div>
         </main>

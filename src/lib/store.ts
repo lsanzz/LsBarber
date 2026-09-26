@@ -1,9 +1,10 @@
-// Local-first store for Sistema LsBarber.
-// A estrutura foi mantida simples para a entrega inicial e pode ser migrada para backend/banco depois.
+// The commercial workspace is isolated by Supabase Auth and database RLS.
+// Demo mode remains local-only when billing is disabled.
 
 import { useSyncExternalStore } from "react";
 
 import { isSupabaseConfigured, supabase } from "./supabase";
+import { billingEnabled } from "./purchase";
 
 export type Gender = "masculino" | "feminino" | "unissex";
 export type AppointmentStatus =
@@ -113,9 +114,9 @@ export interface State {
 
 const KEY = "lsbarber-state-v1";
 const LEGACY_KEY = "novo-stilo-state-v1";
-const SUPABASE_TABLE = "lsbarber_state";
-const SUPABASE_ROW_ID = "lsbarber";
-const uid = () => Math.random().toString(36).slice(2, 10);
+const SUPABASE_TABLE = "salon_workspaces";
+const uid = () => crypto.randomUUID?.()
+  ?? Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
 
 export type SupabaseSyncStatus = "local" | "conectando" | "conectado" | "salvando" | "erro";
 
@@ -124,14 +125,13 @@ export interface SupabaseSyncState {
   status: SupabaseSyncStatus;
   message: string;
   lastSync?: string;
+  conflict?: boolean;
 }
 
 let syncState: SupabaseSyncState = {
-  configured: isSupabaseConfigured,
-  status: isSupabaseConfigured ? "conectando" : "local",
-  message: isSupabaseConfigured
-    ? "Preparando conexão com o Supabase."
-    : "Rodando em modo local. Configure o .env.local para sincronizar com o Supabase.",
+  configured: isSupabaseConfigured && billingEnabled,
+  status: billingEnabled ? "conectando" : "local",
+  message: billingEnabled ? "Aguardando autenticação da conta." : "Demonstração local neste navegador.",
 };
 
 const syncListeners = new Set<() => void>();
@@ -183,18 +183,19 @@ const normalizeState = (loaded: State): State => ({
   sales: (loaded.sales ?? []).map((sale) => ({ ...sale, items: sale.items.map(normalizeSaleItem) })),
 });
 
-let state: State;
-try {
-  if (typeof localStorage !== "undefined") localStorage.removeItem(LEGACY_KEY);
-  const raw = typeof localStorage !== "undefined" ? localStorage.getItem(KEY) : null;
-  state = raw ? normalizeState(JSON.parse(raw)) : seed();
-} catch {
-  state = seed();
+let state: State = seed();
+if (!billingEnabled) {
+  try {
+    if (typeof localStorage !== "undefined") localStorage.removeItem(LEGACY_KEY);
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(KEY) : null;
+    state = raw ? normalizeState(JSON.parse(raw)) : seed();
+  } catch { state = seed(); }
 }
 
 const listeners = new Set<() => void>();
 
 const saveLocal = () => {
+  if (billingEnabled) return;
   try {
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(KEY, JSON.stringify(state));
@@ -205,37 +206,82 @@ const saveLocal = () => {
 const notify = () => listeners.forEach((listener) => listener());
 
 let supabaseReady = false;
-let syncingFromRemote = false;
+let activeUserId: string | null = null;
+let planLimit = 0;
+let serverVersion = 0;
+let generation = 0;
+let saveInFlight = false;
+let savePromise: Promise<void> | null = null;
+let dirty = false;
 let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+let initPromise: Promise<SupabaseSyncState> | null = null;
 
-const saveToSupabase = async () => {
-  if (!supabase || !supabaseReady || syncingFromRemote) return;
+if (billingEnabled && typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', event => {
+    if (!dirty && !saveInFlight) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+}
+
+const saveToSupabase = (): Promise<void> => {
+  if (savePromise) return savePromise;
+  if (!supabase || !supabaseReady || !activeUserId || !dirty) return Promise.resolve();
+  const currentGeneration = generation;
+  const ownerId = activeUserId;
+  const snapshot = state;
+  dirty = false;
+  saveInFlight = true;
 
   setSyncState({ status: "salvando", message: "Salvando alterações no Supabase..." });
-
-  const { error } = await supabase.from(SUPABASE_TABLE).upsert({
-    id: SUPABASE_ROW_ID,
-    data: state,
-    updated_at: new Date().toISOString(),
-  });
-
-  if (error) {
-    setSyncState({
-      status: "erro",
-      message: `Erro ao salvar no Supabase: ${error.message}`,
-    });
-    return;
-  }
-
-  setSyncState({
-    status: "conectado",
-    message: "Dados sincronizados com o Supabase.",
-    lastSync: new Date().toISOString(),
-  });
+  const operation = (async () => {
+    try {
+      const { data, error } = await supabase.rpc('save_workspace_state', {
+        p_owner: ownerId,
+        p_expected_version: serverVersion,
+        p_data: snapshot,
+      });
+      if (currentGeneration !== generation) return;
+      if (error) {
+        dirty = true;
+        setSyncState({
+          status: "erro",
+          message: error.code === 'P0001'
+            ? 'Outra aba alterou estes dados. Não feche esta aba; exporte seus dados e recarregue antes de editar novamente.'
+            : error.code === '42501'
+              ? 'Sua assinatura ou o limite de profissionais não permite salvar esta alteração.'
+              : `Não foi possível salvar no Supabase: ${error.message}`,
+          conflict: error.code === 'P0001',
+        });
+        return;
+      }
+      serverVersion = Number(data);
+      setSyncState({
+        status: "conectado",
+        message: "Dados da sua barbearia sincronizados.",
+        lastSync: new Date().toISOString(),
+        conflict: false,
+      });
+    } catch {
+      if (currentGeneration !== generation) return;
+      dirty = true;
+      setSyncState({ status: 'erro', message: 'A conexão falhou antes de confirmar a gravação. Tente salvar novamente; se persistir, baixe uma cópia dos dados.', conflict: false });
+    } finally {
+      if (currentGeneration === generation) {
+        saveInFlight = false;
+        if (dirty && syncState.status !== 'erro') scheduleSupabaseSave();
+      }
+    }
+  })();
+  savePromise = operation;
+  void operation.finally(() => { if (savePromise === operation) savePromise = null; });
+  return operation;
 };
 
 const scheduleSupabaseSave = () => {
-  if (!supabase || !supabaseReady || syncingFromRemote) return;
+  if (!supabase || !supabaseReady || !activeUserId) return;
+  dirty = true;
+  setSyncState({ status: 'salvando', message: 'Alterações pendentes de sincronização.' });
   if (saveTimeout) clearTimeout(saveTimeout);
   saveTimeout = setTimeout(() => {
     saveTimeout = null;
@@ -254,71 +300,104 @@ const subscribe = (l: () => void) => {
   return () => listeners.delete(l);
 };
 
-let supabaseInitStarted = false;
+export const disconnectSupabaseSync = () => {
+  generation++;
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = null;
+  activeUserId = null;
+  planLimit = 0;
+  serverVersion = 0;
+  supabaseReady = false;
+  dirty = false;
+  saveInFlight = false;
+  savePromise = null;
+  initPromise = null;
+  state = seed();
+  notify();
+  setSyncState({ status: billingEnabled ? 'conectando' : 'local', message: 'Aguardando autenticação da conta.', lastSync: undefined, conflict: false });
+};
 
-export const initSupabaseSync = async () => {
-  if (supabaseInitStarted) return syncState;
-  supabaseInitStarted = true;
+export const setWorkspacePlanLimit = (limit: number) => { planLimit = Math.max(0, Math.floor(limit)); };
+export const getWorkspacePlanLimit = () => planLimit;
 
-  if (!supabase) {
-    setSyncState({
-      configured: false,
-      status: "local",
-      message: "Supabase não configurado. O sistema está salvando apenas neste navegador.",
-    });
+export const initSupabaseSync = async (userId?: string, businessName?: string): Promise<SupabaseSyncState> => {
+  if (!billingEnabled) return syncState;
+  if (!supabase || !userId) {
+    disconnectSupabaseSync();
+    setSyncState({ status: 'erro', message: 'Não foi possível conectar esta conta ao Supabase.' });
     return syncState;
   }
-
-  setSyncState({
-    configured: true,
-    status: "conectando",
-    message: "Conectando ao Supabase...",
-  });
-
-  const { data, error } = await supabase
-    .from(SUPABASE_TABLE)
-    .select("data")
-    .eq("id", SUPABASE_ROW_ID)
-    .maybeSingle();
-
-  if (error) {
-    setSyncState({
-      status: "erro",
-      message: `Não foi possível carregar dados do Supabase: ${error.message}`,
-    });
-    return syncState;
-  }
-
-  if (data?.data) {
-    syncingFromRemote = true;
-    state = normalizeState(data.data as State);
-    saveLocal();
-    notify();
-    syncingFromRemote = false;
-  } else {
-    const { error: insertError } = await supabase.from(SUPABASE_TABLE).insert({
-      id: SUPABASE_ROW_ID,
-      data: state,
-      updated_at: new Date().toISOString(),
-    });
-
-    if (insertError) {
-      setSyncState({
-        status: "erro",
-        message: `Não foi possível criar o registro inicial no Supabase: ${insertError.message}`,
-      });
+  if (activeUserId === userId && supabaseReady) return syncState;
+  if (activeUserId === userId && initPromise) return initPromise;
+  disconnectSupabaseSync();
+  activeUserId = userId;
+  const currentGeneration = generation;
+  setSyncState({ configured: true, status: 'conectando', message: 'Carregando os dados da sua barbearia...' });
+  initPromise = (async () => {
+    const { data, error } = await supabase.from(SUPABASE_TABLE)
+      .select('data, version').eq('owner_id', userId).maybeSingle();
+    if (currentGeneration !== generation) return syncState;
+    if (error) {
+      setSyncState({ status: 'erro', message: `Não foi possível carregar sua barbearia: ${error.message}` });
       return syncState;
     }
-  }
-
-  supabaseReady = true;
-  setSyncState({
-    status: "conectado",
-    message: "Sistema conectado ao Supabase.",
-    lastSync: new Date().toISOString(),
-  });
-  return syncState;
+    if (data) {
+      state = normalizeState(data.data as State);
+      serverVersion = Number(data.version);
+    } else {
+      if (businessName?.trim()) state = { ...state, settings: { ...state.settings, name: businessName.trim().slice(0, 120) } };
+      const { data: createdVersion, error: createError } = await supabase.rpc('save_workspace_state', {
+        p_owner: userId, p_expected_version: 0, p_data: state,
+      });
+      if (currentGeneration !== generation) return syncState;
+      if (createError) {
+        setSyncState({ status: 'erro', message: `Não foi possível criar sua barbearia: ${createError.message}` });
+        return syncState;
+      }
+      serverVersion = Number(createdVersion);
+    }
+    supabaseReady = true;
+    notify();
+    setSyncState({ status: 'conectado', message: 'Sua barbearia está sincronizada.', lastSync: new Date().toISOString() });
+    return syncState;
+  })();
+  try { return await initPromise; }
+  finally { if (currentGeneration === generation) initPromise = null; }
 };
+
+export const retrySupabaseSave = () => { if (dirty) void saveToSupabase(); };
+
+export const flushPendingWorkspace = async (): Promise<boolean> => {
+  if (!billingEnabled) return true;
+  if (!supabaseReady || !activeUserId) return false;
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = null;
+  const deadline = Date.now() + 15_000;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (!dirty && !saveInFlight) return true;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finished = await Promise.race([
+      saveToSupabase().then(() => true),
+      new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), remaining); }),
+    ]);
+    if (timer) clearTimeout(timer);
+    if (!finished || syncState.status === 'erro') return false;
+  }
+  return !dirty && !saveInFlight;
+};
+
+export const downloadWorkspaceData = (data: State) => {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `lsbarber-dados-${toDateInputValue(new Date())}.json`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+export const exportWorkspaceData = () => downloadWorkspaceData(state);
 
 const appointmentRange = (s: State, a: Pick<Appointment, "serviceId" | "start">) => {
   const service = s.services.find((x) => x.id === a.serviceId);
@@ -406,6 +485,9 @@ export const store = {
 
   // professionals
   addProfessional: (p: Omit<Professional, "id">) => {
+    if (billingEnabled && state.professionals.length >= planLimit) {
+      throw new Error(`Seu plano permite até ${planLimit} profissional${planLimit === 1 ? '' : 'is'}. Gerencie o plano antes de adicionar outro.`);
+    }
     state = { ...state, professionals: [...state.professionals, { ...p, id: uid(), commission: Math.max(0, Number(p.commission || 0)) }] };
     persist();
   },

@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AgendaRouteImport } from './routes/agenda'
 import { Route as ApresentacaoRouteImport } from './routes/apresentacao'
+import { Route as AssinaturaRouteImport } from './routes/assinatura'
 import { Route as CadastroRouteImport } from './routes/cadastro'
 import { Route as CaixaRouteImport } from './routes/caixa'
 import { Route as CheckoutRouteImport } from './routes/checkout'
@@ -36,6 +37,11 @@ const AgendaRoute = AgendaRouteImport.update({
 const ApresentacaoRoute = ApresentacaoRouteImport.update({
   id: '/apresentacao',
   path: '/apresentacao',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AssinaturaRoute = AssinaturaRouteImport.update({
+  id: '/assinatura',
+  path: '/assinatura',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CadastroRoute = CadastroRouteImport.update({
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/agenda': typeof AgendaRoute
   '/apresentacao': typeof ApresentacaoRoute
+  '/assinatura': typeof AssinaturaRoute
   '/cadastro': typeof CadastroRoute
   '/caixa': typeof CaixaRoute
   '/checkout': typeof CheckoutRoute
@@ -108,6 +115,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/agenda': typeof AgendaRoute
   '/apresentacao': typeof ApresentacaoRoute
+  '/assinatura': typeof AssinaturaRoute
   '/cadastro': typeof CadastroRoute
   '/caixa': typeof CaixaRoute
   '/checkout': typeof CheckoutRoute
@@ -124,6 +132,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/agenda': typeof AgendaRoute
   '/apresentacao': typeof ApresentacaoRoute
+  '/assinatura': typeof AssinaturaRoute
   '/cadastro': typeof CadastroRoute
   '/caixa': typeof CaixaRoute
   '/checkout': typeof CheckoutRoute
@@ -141,6 +150,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agenda'
     | '/apresentacao'
+    | '/assinatura'
     | '/cadastro'
     | '/caixa'
     | '/checkout'
@@ -156,6 +166,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agenda'
     | '/apresentacao'
+    | '/assinatura'
     | '/cadastro'
     | '/caixa'
     | '/checkout'
@@ -171,6 +182,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agenda'
     | '/apresentacao'
+    | '/assinatura'
     | '/cadastro'
     | '/caixa'
     | '/checkout'
@@ -187,6 +199,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AgendaRoute: typeof AgendaRoute
   ApresentacaoRoute: typeof ApresentacaoRoute
+  AssinaturaRoute: typeof AssinaturaRoute
   CadastroRoute: typeof CadastroRoute
   CaixaRoute: typeof CaixaRoute
   CheckoutRoute: typeof CheckoutRoute
@@ -220,6 +233,13 @@ declare module '@tanstack/react-router' {
       path: '/apresentacao'
       fullPath: '/apresentacao'
       preLoaderRoute: typeof ApresentacaoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/assinatura': {
+      id: '/assinatura'
+      path: '/assinatura'
+      fullPath: '/assinatura'
+      preLoaderRoute: typeof AssinaturaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cadastro': {
@@ -299,6 +319,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AgendaRoute: AgendaRoute,
   ApresentacaoRoute: ApresentacaoRoute,
+  AssinaturaRoute: AssinaturaRoute,
   CadastroRoute: CadastroRoute,
   CaixaRoute: CaixaRoute,
   CheckoutRoute: CheckoutRoute,

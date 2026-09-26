@@ -3,7 +3,7 @@ import { ArrowDown, ArrowRight, BarChart3, CalendarDays, Check, ChevronRight, Ex
 import './sales-page.css';
 import { AnimatedValue, ChoiceGroup } from './motion-kit';
 import { plans, purchaseUrl } from '@/lib/plans';
-import { billingEnabled } from '@/lib/purchase';
+import { billingEnabled } from '@/lib/billing-mode';
 
 const modules = [
   { name: 'Visão geral', icon: BarChart3, image: 'dashboard', title: 'Abra o dia com tudo à vista.', text: 'Faturamento do dia, próximos atendimentos, comissões e alertas de estoque. O essencial da sua operação em uma única tela.', alt: 'Dashboard real da LsBarber com faturamento, próximos atendimentos e estoque baixo' },
@@ -12,11 +12,12 @@ const modules = [
   { name: 'Relatórios', icon: BarChart3, image: 'relatorios', title: 'Entenda os números da casa.', text: 'Consulte o faturamento, os serviços mais realizados, as comissões por profissional e as vendas por forma de pagamento.', alt: 'Relatórios da LsBarber com receitas demonstrativas, serviços e comissões' },
 ];
 const questions = [
-  ['Como funciona o plano anual?', 'O valor anual equivale a 10 mensalidades e é pago por ano. O equivalente mensal serve apenas para comparação. Você escolhe o plano, cadastra a barbearia e revisa tudo antes de pagar. Enquanto a integração não estiver ativa, o checkout funciona apenas como demonstração.'],
+  ['Como funciona o plano anual?', `O valor anual equivale a 10 mensalidades e é cobrado uma vez por ano. O equivalente mensal serve apenas para comparação. Você escolhe o plano, cadastra a barbearia e revisa tudo antes de pagar.${billingEnabled ? ' O pagamento da assinatura é feito na Stripe.' : ' Nesta demonstração, nenhuma cobrança é feita.'}`],
   ['Para quem é a LsBarber?', 'Para quem administra uma barbearia ou salão e precisa reunir agenda, clientes, equipe, vendas e estoque na mesma rotina. Você cadastra os profissionais, serviços e horários do seu negócio.'],
+  ['Cada profissional recebe um login?', 'Não. Você cadastra os profissionais para organizar agenda, serviços e comissões, mas a assinatura oferece uma conta de acesso para o responsável pela barbearia. Logins individuais para a equipe ainda não estão disponíveis.'],
   ['As telas mostram o sistema de verdade?', 'Sim. As imagens foram capturadas na própria LsBarber. Os nomes, atendimentos e valores são fictícios e foram usados apenas para demonstrar as telas. Ao abrir uma instalação nova, os cadastros começam vazios.'],
   ['Posso usar no celular?', 'Sim. A interface se adapta a celulares, tablets e computadores. Na agenda, você pode deslizar a grade horizontalmente para consultar os profissionais.'],
-  ['Como meus dados são salvos?', 'No modo local, os dados ficam no navegador utilizado. A sincronização com Supabase depende de configuração. Para uso em produção e acesso por uma equipe, a implantação precisa considerar autenticação e controle de acesso.'],
+  ['Como meus dados são salvos?', billingEnabled ? 'Os dados da sua barbearia são sincronizados com o Supabase e vinculados à sua conta. O painel exige login e assinatura ativa. Você pode baixar uma cópia dos seus dados em JSON nas configurações.' : 'Nesta demonstração, os dados ficam neste navegador. Não use informações reais no modo local.'],
   ['O sistema recebe pagamentos?', 'O caixa registra vendas em dinheiro, Pix, débito ou crédito para seu controle. O recebimento é realizado fora da LsBarber: não há processamento de cartão ou geração de cobrança Pix integrada.'],
 ];
 
@@ -158,7 +159,7 @@ export function SalesPage() {
             {[
               { icon: CalendarDays, number: '01', title: 'Organize a agenda', text: 'Visualize horários por profissional e acompanhe o atendimento, do agendamento à finalização.' },
               { icon: Wallet, number: '02', title: 'Controle cada venda', text: 'Monte comandas de serviços e produtos, registre descontos e acompanhe as formas de pagamento.' },
-              { icon: Users, number: '03', title: 'Conheça seus clientes', text: 'Mantenha contatos, observações e histórico de atendimentos acessíveis à sua equipe.' },
+              { icon: Users, number: '03', title: 'Conheça seus clientes', text: 'Mantenha contatos, observações e histórico de atendimentos reunidos no painel da barbearia.' },
               { icon: Package, number: '04', title: 'Cuide do estoque', text: 'Cadastre produtos, defina um estoque mínimo e veja quando está na hora de repor.' },
             ].map(({ icon: Icon, number, title, text }) => <article className="sales-resource" key={number}><div><Icon size={25} strokeWidth={1.5} /><span>{number}</span></div><h3>{title}</h3><p>{text}</p></article>)}
           </div>

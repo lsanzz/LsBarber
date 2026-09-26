@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button, Card, Field, Input, PageHeader } from "@/components/ui-kit";
-import { store, useStore } from "@/lib/store";
+import { exportWorkspaceData, store, useStore, useSupabaseSyncStatus } from "@/lib/store";
+import { billingEnabled } from '@/lib/purchase';
 
 export const Route = createFileRoute("/configuracoes")({ component: SettingsPage });
 
@@ -9,6 +10,7 @@ const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 function SettingsPage() {
   const settings = useStore((s) => s.settings);
+  const sync = useSupabaseSyncStatus();
   const [f, setF] = useState(settings);
 
   const toggleDay = (d: number) => {
@@ -18,7 +20,7 @@ function SettingsPage() {
 
   const save = () => {
     store.updateSettings(f);
-    alert("Configurações salvas com sucesso.");
+    if (!billingEnabled) alert("Configurações salvas neste navegador.");
   };
 
   return (
@@ -63,11 +65,18 @@ function SettingsPage() {
       </div>
 
       <div className="flex justify-end gap-3 mt-6">
-        <Button variant="outline" onClick={() => { if (confirm("Restaurar os dados iniciais? Essa ação substitui os dados salvos neste navegador.")) store.reset(); }}>
+        <Button variant="outline" onClick={exportWorkspaceData}>Baixar cópia dos dados</Button>
+        {!billingEnabled && <Button variant="outline" onClick={() => { if (confirm("Restaurar os dados iniciais? Essa ação substitui os dados salvos neste navegador.")) store.reset(); }}>
           Restaurar dados iniciais
-        </Button>
+        </Button>}
         <Button variant="gold" onClick={save}>Salvar configurações</Button>
       </div>
+      {billingEnabled && <p className="mt-3 text-right text-sm text-muted-foreground" role="status">
+        {sync.status === 'salvando' ? 'Salvando alterações no Supabase…'
+          : sync.status === 'conectado' ? 'Dados sincronizados com o Supabase.'
+            : sync.status === 'erro' ? 'Não foi possível salvar. Veja o aviso no topo da página.'
+              : 'Verificando a conexão…'}
+      </p>}
     </div>
   );
 }

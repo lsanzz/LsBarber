@@ -1,8 +1,19 @@
 import { chromium, expect } from '@playwright/test';
+import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
-const origin = process.env.CAPTURE_URL || 'http://localhost:5173';
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const origin = process.env.CAPTURE_URL || 'http://127.0.0.1:5182';
+const server = process.env.CAPTURE_URL ? null : spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '5182', '--strictPort'], {
+  env: { ...process.env, VITE_BILLING_ENABLED: 'false' },
+  windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+});
+let browser;
 try {
+  if (server) await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(Error('Vite did not start')), 20000);
+    server.stdout.on('data', data => { if (String(data).includes('Local:')) { clearTimeout(timeout); resolve(); } });
+    server.once('exit', code => { clearTimeout(timeout); reject(Error(`Vite exited: ${code}`)); });
+  });
+  browser = await chromium.launch({ channel: 'msedge', headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1080 }, reducedMotion: 'reduce' });
   const page = await context.newPage();
   const errors = [];
@@ -60,4 +71,4 @@ try {
   await expect(page.locator('.purchase-summary')).toContainText('R$ 69,90');
   if (errors.length) throw Error(errors.join('\n'));
   console.log('PASS: plano/ciclo, cadastro, validação, senha não persistida, revisão, refresh, simulação, confirmação, cancelamento, acesso direto e mobile.');
-} finally { await browser.close(); }
+} finally { await browser?.close(); server?.kill(); }

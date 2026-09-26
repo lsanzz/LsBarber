@@ -1,6 +1,15 @@
 import { isSupabaseConfigured, supabase } from './supabase';
-export const billingEnabled = import.meta.env.VITE_BILLING_ENABLED === 'true';
+export { billingEnabled } from './billing-mode';
 export const billingConfigured = isSupabaseConfigured;
+export async function getLiveBillingMode(): Promise<boolean> {
+  if (!supabase) throw new Error('A integração de pagamento ainda não foi configurada.');
+  const { data, error } = await supabase.from('billing_environment')
+    .select('live_mode').eq('id', true).single();
+  if (error || typeof data?.live_mode !== 'boolean') {
+    throw new Error('Não foi possível verificar o ambiente de pagamento. Tente novamente.');
+  }
+  return data.live_mode;
+}
 export interface Registration { name: string; business: string; email: string; phone: string }
 const draftKey = 'lsbarber-registration-draft-v1';
 export const demoReceiptKey = 'lsbarber-demo-receipt-v1';

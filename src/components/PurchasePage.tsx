@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, CreditCard, Eye, EyeOff, LockKeyhole, Scissors, ShieldCheck } from 'lucide-react';
 import { AnimatedValue, ChoiceGroup } from './motion-kit';
-import { billingConfigured, billingEnabled, billingRequest, demoReceiptKey, readDraft, saveDraft } from '@/lib/purchase';
+import { billingConfigured, billingEnabled, billingRequest, demoReceiptKey, getLiveBillingMode, readDraft, saveDraft } from '@/lib/purchase';
 import { money, plans, planTotal, purchaseSelection, type BillingCycle, type PlanId } from '@/lib/plans';
 import { supabase } from '@/lib/supabase';
 import './sales-page.css';
 import './purchase-page.css';
+import './purchase-auth.css';
 
 export function PurchasePage({ stage }: { stage: 'cadastro' | 'checkout' | 'confirmacao' }) {
   const initial = purchaseSelection(window.location.search);
@@ -16,15 +17,16 @@ export function PurchasePage({ stage }: { stage: 'cadastro' | 'checkout' | 'conf
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [login, setLogin] = useState(false);
+  const [login, setLogin] = useState(new URLSearchParams(window.location.search).get('entrar') === '1');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [signedIn, setSignedIn] = useState(!billingEnabled);
   const [authReady, setAuthReady] = useState(!billingEnabled);
-  const [status, setStatus] = useState<'checking' | 'demo' | 'paid' | 'pending' | 'invalid'>('checking');
+  const [status, setStatus] = useState<'checking' | 'demo' | 'paid' | 'activating' | 'pending' | 'invalid'>('checking');
   const [retry, setRetry] = useState(0);
   const submitting = useRef(false);
+  const warnedEmail = useRef('');
   const errorRef = useRef<HTMLDivElement>(null);
   const query = `plano=${planId}&ciclo=${cycle}`;
   const cancelled = new URLSearchParams(window.location.search).get('cancelado') === '1';
@@ -48,6 +50,7 @@ export function PurchasePage({ stage }: { stage: 'cadastro' | 'checkout' | 'conf
   useEffect(() => {
     if (stage !== 'confirmacao') return;
     let ignore = false;
+    let nextCheck: ReturnType<typeof setTimeout> | undefined;
     if (!billingEnabled) {
       try {
         const receipt = JSON.parse(sessionStorage.getItem(demoReceiptKey) || 'null');
@@ -65,9 +68,12 @@ export function PurchasePage({ stage }: { stage: 'cadastro' | 'checkout' | 'conf
       if (ignore) return;
       if (plans.some(plan => plan.id === result.plan)) setPlanId(result.plan);
       if (result.cycle === 'annual' || result.cycle === 'monthly') setCycle(result.cycle);
-      setStatus(result.paid ? 'paid' : 'pending');
+      setStatus(result.accessReady ? 'paid' : result.paid ? 'activating' : 'pending');
+      if (result.paid && !result.accessReady && retry < 10) {
+        nextCheck = setTimeout(() => setRetry(value => value + 1), 3000);
+      }
     }).catch(err => { if (!ignore) { setError(err.message); setStatus('pending'); } });
-    return () => { ignore = true; };
+    return () => { ignore = true; if (nextCheck) clearTimeout(nextCheck); };
   }, [stage, retry, authReady, signedIn]);
 
   async function register(event: FormEvent<HTMLFormElement>) {
@@ -77,21 +83,72 @@ export function PurchasePage({ stage }: { stage: 'cadastro' | 'checkout' | 'conf
     if (!login && (!draft.name.trim() || !draft.business.trim())) { setError('Preencha seu nome e o nome da barbearia.'); return; }
     if (!login && password !== confirmation) { setError('As senhas precisam ser iguais. Confira a confirmação.'); return; }
     if (!login && !/^\d{10,11}$/.test(draft.phone.replace(/\D/g, ''))) { setError('Informe um telefone com DDD e 10 ou 11 dígitos.'); return; }
+    const email = draft.email.trim().toLowerCase();
+    if (!login && /@(gmai|gmial|gamil)\.com$/.test(email) && warnedEmail.current !== email) {
+      warnedEmail.current = email;
+      setError('Confira o domínio do e-mail: você quis dizer gmail.com? Corrija o endereço ou clique em “Continuar para pagamento” novamente se ele estiver certo.');
+      return;
+    }
     submitting.current = true; setBusy(true);
     try {
-      const clean = { ...draft, name: draft.name.trim(), business: draft.business.trim(), email: draft.email.trim().toLowerCase() };
+      const clean = { ...draft, name: draft.name.trim(), business: draft.business.trim(), email };
       saveDraft(clean);
       if (billingEnabled) {
         if (!supabase) throw new Error('Cadastro indisponível até a configuração da integração.');
         const result = login
           ? await supabase.auth.signInWithPassword({ email: clean.email, password })
           : await supabase.auth.signUp({ email: clean.email, password, options: { data: { full_name: clean.name, business_name: clean.business, phone: clean.phone }, emailRedirectTo: `${window.location.origin}/checkout?${query}` } });
-        if (result.error) throw new Error(login ? 'Não foi possível entrar. Confira o e-mail, a senha e a confirmação do e-mail.' : 'Não foi possível criar a conta. Tente novamente ou use “Já tenho conta”.');
+        if (result.error) {
+          if (login && (result.error.code === 'email_not_confirmed' || /email not confirmed/i.test(result.error.message))) throw new Error('Seu cadastro foi criado, mas o e-mail ainda não foi confirmado. Abra o link que enviamos ou peça um novo abaixo.');
+          throw new Error(login ? 'Não foi possível entrar. Confira o e-mail e a senha.' : 'Não foi possível criar a conta. Tente novamente ou use “Já tenho conta”.');
+        }
         setPassword(''); setConfirmation('');
         if (!result.data.session) { setNotice('Confira seu e-mail e confirme o cadastro. Depois, entre na sua conta para continuar o pagamento.'); setLogin(true); return; }
+        if (login) {
+          const liveMode = await getLiveBillingMode();
+          const { data: latestPlan, error: planError } = await supabase.from('billing_subscriptions')
+            .select('status').eq('user_id', result.data.session.user.id)
+            .eq('livemode', liveMode)
+            .order('event_time', { ascending: false })
+            .order('updated_at', { ascending: false }).limit(1).maybeSingle();
+          if (planError) throw new Error('Não foi possível conferir sua assinatura. Tente entrar novamente.');
+          if (latestPlan && ['active', 'trialing'].includes(latestPlan.status)) { window.location.assign('/'); return; }
+        }
       }
       window.location.assign(`/checkout?${query}`);
     } catch (err) { setError(err instanceof Error ? err.message : 'Não foi possível continuar.'); }
+    finally { submitting.current = false; setBusy(false); }
+  }
+
+  async function resendConfirmation() {
+    if (submitting.current) return;
+    const email = draft.email.trim().toLowerCase();
+    setError(''); setNotice('');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Informe um e-mail válido para receber o link de confirmação.'); return; }
+    if (!supabase) { setError('A confirmação por e-mail não está disponível neste momento.'); return; }
+    submitting.current = true; setBusy(true);
+    try {
+      const { error: resendError } = await supabase.auth.resend({ type: 'signup', email, options: { emailRedirectTo: `${window.location.origin}/checkout?${query}` } });
+      if (resendError) throw resendError;
+      setNotice('Se este e-mail estiver cadastrado, enviamos um novo link de confirmação. Confira também a caixa de spam.');
+    } catch { setError('Não foi possível reenviar o link agora. Aguarde um instante e tente novamente.'); }
+    finally { submitting.current = false; setBusy(false); }
+  }
+
+  async function requestPasswordReset() {
+    if (submitting.current) return;
+    const email = draft.email.trim().toLowerCase();
+    setError(''); setNotice('');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Informe seu e-mail para receber o link de recuperação.'); return; }
+    if (!supabase) { setError('A recuperação de senha não está disponível neste momento.'); return; }
+    submitting.current = true; setBusy(true);
+    try {
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/checkout?recuperacao=1`,
+      });
+      if (resetError) throw resetError;
+      setNotice('Se este e-mail estiver cadastrado, enviaremos um link para redefinir a senha. Confira também a caixa de spam.');
+    } catch { setError('Não foi possível enviar o link agora. Aguarde um instante e tente novamente.'); }
     finally { submitting.current = false; setBusy(false); }
   }
 
@@ -126,11 +183,11 @@ export function PurchasePage({ stage }: { stage: 'cadastro' | 'checkout' | 'conf
           <p className="sales-eyebrow">SUA BARBEARIA, MAIS ORGANIZADA</p><h1>{login ? 'Bem-vindo de volta.' : 'Vamos preparar a sua conta.'}</h1><p className="purchase-lead">{login ? 'Entre para continuar com o plano escolhido.' : 'Comece pelos seus dados. Você revisa o plano antes de pagar.'}</p>
           <form onSubmit={register} className="purchase-form">
             {!login && <><label>Seu nome<input name="name" autoComplete="name" required maxLength={100} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} placeholder="Como podemos chamar você?" /></label><label>Nome da barbearia<input name="organization" autoComplete="organization" required maxLength={120} value={draft.business} onChange={e => setDraft({ ...draft, business: e.target.value })} placeholder="Nome do seu negócio" /></label></>}
-            <div className="purchase-form-row"><label>E-mail<input type="email" name="email" autoComplete="email" required maxLength={254} value={draft.email} onChange={e => setDraft({ ...draft, email: e.target.value })} placeholder="voce@exemplo.com" /></label>{!login && <label>Telefone com DDD<input type="tel" name="tel" autoComplete="tel" required maxLength={20} value={draft.phone} onChange={e => setDraft({ ...draft, phone: e.target.value })} placeholder="(11) 99999-9999" /></label>}</div>
+            <div className="purchase-form-row"><label>E-mail<input type="email" name="email" autoComplete="email" required maxLength={254} value={draft.email} onChange={e => { warnedEmail.current = ''; setDraft({ ...draft, email: e.target.value }); }} placeholder="voce@exemplo.com" /></label>{!login && <label>Telefone com DDD<input type="tel" name="tel" autoComplete="tel" required maxLength={20} value={draft.phone} onChange={e => setDraft({ ...draft, phone: e.target.value })} placeholder="(11) 99999-9999" /></label>}</div>
             <label>{billingEnabled ? 'Senha' : 'Senha de demonstração'}<div className="purchase-password"><input aria-label={billingEnabled ? 'Senha' : 'Senha de demonstração'} type={showPassword ? 'text' : 'password'} name="password" autoComplete={login ? 'current-password' : 'new-password'} required minLength={8} maxLength={128} value={password} onChange={e => setPassword(e.target.value)} aria-describedby="password-hint" /><button type="button" aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div><small id="password-hint">Pelo menos 8 caracteres.{!billingEnabled && ' Use uma senha fictícia; ela não será salva.'}</small></label>
             {!login && <label>Confirmar senha<input type="password" name="confirm-password" autoComplete="new-password" required minLength={8} maxLength={128} value={confirmation} onChange={e => setConfirmation(e.target.value)} /></label>}
             <button type="submit" className="sales-button" disabled={busy || (billingEnabled && !billingConfigured)}>{busy ? 'Aguarde…' : login ? 'Entrar e continuar' : 'Continuar para pagamento'}<ArrowRight size={17} /></button>
-            {billingEnabled && <button type="button" className="purchase-link" onClick={() => { setLogin(!login); setError(''); }}>{login ? 'Ainda não tenho conta' : 'Já tenho conta'}</button>}
+            {billingEnabled && <div className="purchase-auth-actions"><button type="button" className="purchase-link" onClick={() => { setLogin(!login); setError(''); setNotice(''); }}>{login ? 'Ainda não tenho conta' : 'Já tenho conta'}</button>{login && <><button type="button" className="purchase-link" onClick={requestPasswordReset} disabled={busy}>Esqueci minha senha</button><button type="button" className="purchase-link" onClick={resendConfirmation} disabled={busy}>Reenviar e-mail de confirmação</button></>}</div>}
             <p className="purchase-fine">{billingEnabled ? 'A senha é usada somente para autenticar sua conta. Dados de cartão serão solicitados pela Stripe.' : 'Os dados deste formulário ficam apenas nesta aba para a demonstração. A senha não é armazenada.'}</p>
           </form>
         </>}
@@ -148,11 +205,11 @@ export function PurchasePage({ stage }: { stage: 'cadastro' | 'checkout' | 'conf
         </>}
         {stage === 'confirmacao' && <div className="purchase-confirmation">
           <CheckCircle2 size={52} className={status === 'paid' || status === 'demo' ? 'confirmed' : ''} />
-          <h1>{status === 'checking' ? 'Verificando pagamento…' : status === 'demo' ? 'Demonstração concluída!' : status === 'paid' ? 'Pagamento confirmado.' : status === 'pending' ? 'Aguardando confirmação.' : 'Vamos começar pelo cadastro.'}</h1>
-          <p className="purchase-lead" role="status">{status === 'demo' ? 'Você percorreu todo o fluxo. Nenhuma cobrança foi feita e nenhuma assinatura real foi ativada.' : status === 'paid' ? 'A Stripe confirmou o pagamento da sua assinatura. Guarde o comprovante enviado por e-mail.' : status === 'pending' ? 'Ainda não foi possível confirmar o pagamento. Você pode consultar novamente sem criar outra cobrança.' : status === 'invalid' ? 'Não encontramos uma sessão de compra válida nesta conta. Retome o cadastro para continuar.' : 'Consultando a Stripe com segurança.'}</p>
-          {status === 'pending' && <button className="sales-button" onClick={() => { setError(''); setRetry(value => value + 1); }}>Verificar novamente</button>}
+          <h1>{status === 'checking' ? 'Verificando pagamento…' : status === 'demo' ? 'Demonstração concluída!' : status === 'paid' ? 'Plano ativo. Pode entrar.' : status === 'activating' ? 'Pagamento aprovado. Ativando o plano…' : status === 'pending' ? 'Aguardando confirmação.' : 'Vamos começar pelo cadastro.'}</h1>
+          <p className="purchase-lead" role="status">{status === 'demo' ? 'Você percorreu todo o fluxo. Nenhuma cobrança foi feita e nenhuma assinatura real foi ativada.' : status === 'paid' ? 'O pagamento e a ativação do seu plano foram confirmados. Consulte faturas e cancelamento na página Assinatura.' : status === 'activating' ? `A Stripe aprovou o pagamento. Estamos aguardando o registro da assinatura para liberar o painel. ${retry < 10 ? 'Esta página verifica novamente automaticamente.' : 'A ativação está demorando; tente verificar novamente mais tarde.'} Não faça outra compra.` : status === 'pending' ? 'Ainda não foi possível confirmar o pagamento. Você pode consultar novamente sem criar outra cobrança.' : status === 'invalid' ? 'Não encontramos uma sessão de compra válida nesta conta. Retome o cadastro para continuar.' : 'Consultando a Stripe com segurança.'}</p>
+          {(status === 'pending' || status === 'activating') && <button className="sales-button" onClick={() => { setError(''); setRetry(value => value + 1); }}>Verificar novamente</button>}
           {status === 'demo' && <a className="sales-button" href="/">Explorar o painel local<ArrowRight size={17} /></a>}
-          {status === 'paid' && <a className="sales-button" href="/apresentacao">Voltar à LsBarber<ArrowRight size={17} /></a>}
+          {status === 'paid' && <a className="sales-button" href="/">Abrir meu painel<ArrowRight size={17} /></a>}
           {status === 'invalid' && <a className="sales-button" href={`/cadastro?${query}`}>Retomar cadastro</a>}
           <a className="purchase-link" href="/apresentacao#planos">Voltar aos planos</a>
         </div>}

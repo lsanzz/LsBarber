@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Badge, Button, Card, Field, Input, Modal, PageHeader, Select } from "@/components/ui-kit";
-import { Gender, Professional, store, useStore } from "@/lib/store";
+import { Gender, Professional, getWorkspacePlanLimit, store, useStore } from "@/lib/store";
+import { billingEnabled } from '@/lib/purchase';
 
 export const Route = createFileRoute("/profissionais")({ component: ProfPage });
 
@@ -12,14 +13,16 @@ function ProfPage() {
   const list = [...professionals].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   const [editing, setEditing] = useState<Professional | null>(null);
   const [open, setOpen] = useState(false);
+  const limit = billingEnabled ? getWorkspacePlanLimit() : null;
 
   return (
     <div>
       <PageHeader
         title="Profissionais"
-        subtitle={`${list.filter((p) => p.active).length} ativos`}
-        action={<Button variant="gold" onClick={() => { setEditing(null); setOpen(true); }}>+ Novo profissional</Button>}
+        subtitle={`${list.filter((p) => p.active).length} ativos${limit !== null ? ` · ${list.length}/${limit} no plano` : ''}`}
+        action={<Button variant="gold" disabled={limit !== null && list.length >= limit} onClick={() => { setEditing(null); setOpen(true); }}>+ Novo profissional</Button>}
       />
+      {limit !== null && list.length >= limit && <p className="mb-5 rounded-lg border border-gold/30 bg-gold/10 px-4 py-3 text-sm">Você atingiu o limite de profissionais do seu plano. <a href="/assinatura" className="font-semibold underline underline-offset-2">Gerenciar assinatura</a></p>}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {list.map((p) => (
           <Card key={p.id} className="p-5">
@@ -55,18 +58,22 @@ function ProForm({ pro, onClose }: { pro: Professional | null; onClose: () => vo
   const [commission, setCommission] = useState(pro?.commission ?? 40);
   const [color, setColor] = useState(pro?.color ?? COLORS[0]);
   const [active, setActive] = useState(pro?.active ?? true);
+  const [error, setError] = useState('');
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const data = { name, phone, specialty, attendance, commission, color, active };
-    if (pro) store.updateProfessional(pro.id, data);
-    else store.addProfessional(data);
-    onClose();
+    try {
+      if (pro) store.updateProfessional(pro.id, data);
+      else store.addProfessional(data);
+      onClose();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível salvar este profissional.'); }
   };
 
   return (
     <Modal open onClose={onClose} title={pro ? "Editar profissional" : "Novo profissional"}>
       <form onSubmit={submit} className="space-y-4">
+        {error && <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
         <Field label="Nome"><Input value={name} onChange={(e) => setName(e.target.value)} required /></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Telefone"><Input value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>

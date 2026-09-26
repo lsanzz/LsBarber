@@ -1,0 +1,17 @@
+.purchase-auth-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.purchase-auth-actions .purchase-link {
+  margin: 0;
+  min-height: 32px;
+  cursor: pointer;
+}
+
+.purchase-auth-actions .purchase-link:focus-visible {
+  outline: 2px solid #a68342;
+  outline-offset: 3px;
+}
