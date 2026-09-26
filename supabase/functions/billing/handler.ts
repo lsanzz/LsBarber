@@ -73,13 +73,22 @@ export async function handleBilling(request: Request): Promise<Response> {
       if (readError) throw readError;
       customerId = saved.stripe_customer_id;
     }
-    const subscriptions = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 100 });
-    if (subscriptions.data.some(sub => ['active', 'trialing', 'past_due', 'unpaid', 'paused', 'incomplete'].includes(sub.status))) return json({ error: 'Esta conta já possui uma assinatura ou pagamento em andamento. Não criaremos uma cobrança duplicada.' }, 409);
-    const open = await stripe.checkout.sessions.list({ customer: customerId, status: 'open', limit: 100 });
-    const existing = open.data.find(session => session.metadata?.plan === chosen.plan && session.metadata?.cycle === chosen.cycle);
+    let subscriptionCount = 0;
+    for await (const subscription of stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 100 })) {
+      if (++subscriptionCount > 1000) return json({ error: 'Não foi possível conferir todas as assinaturas desta conta. Contate o suporte antes de tentar novamente.' }, 503);
+      if (['active', 'trialing', 'past_due', 'unpaid', 'paused', 'incomplete'].includes(subscription.status)) {
+        return json({ error: 'Esta conta já possui uma assinatura ou pagamento em andamento. Não criaremos uma cobrança duplicada.' }, 409);
+      }
+    }
+    const open = [];
+    for await (const session of stripe.checkout.sessions.list({ customer: customerId, status: 'open', limit: 100 })) {
+      if (open.length >= 1000) return json({ error: 'Há muitas sessões de pagamento abertas nesta conta. Contate o suporte antes de tentar novamente.' }, 503);
+      open.push(session);
+    }
+    const existing = open.find(session => session.metadata?.plan === chosen.plan && session.metadata?.cycle === chosen.cycle);
     if (existing?.url) return json({ url: existing.url });
     // Avoid keeping an old payment link valid after the customer changes plans.
-    for (const session of open.data) await stripe.checkout.sessions.expire(session.id);
+    for (const session of open) await stripe.checkout.sessions.expire(session.id);
     const metadata = { user_id: user.id, plan: chosen.plan, cycle: chosen.cycle };
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription', customer: customerId, client_reference_id: user.id,

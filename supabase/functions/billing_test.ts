@@ -8,7 +8,7 @@ import { handleWebhook } from './stripe-webhook/handler.ts';
 const userId = '00000000-0000-4000-8000-000000000001';
 const env = { APP_URL: 'http://localhost:5173', SUPABASE_URL: 'https://billing-test.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'test-service-key', STRIPE_SECRET_KEY: 'sk_test_example', STRIPE_WEBHOOK_SECRET: 'whsec_example', STRIPE_PRICE_PLUS_ANNUAL: 'price_plus_annual', STRIPE_PRICE_BASICO_MONTHLY: 'price_basico_monthly', STRIPE_PRICE_PRO_MONTHLY: 'price_pro_monthly' };
 for (const [key, value] of Object.entries(env)) Deno.env.set(key, value);
-type Options = { wrongPrice?: boolean; wrongModePrice?: boolean; wrongEnvironment?: boolean; wrongOwner?: boolean; active?: boolean; locked?: boolean; failSave?: boolean; unpaid?: boolean; existing?: boolean; unconfirmed?: boolean; noCustomer?: boolean; savedSubscription?: boolean; inactiveSubscription?: boolean; wrongSubscription?: boolean; portalPlanChange?: boolean; unknownSubscriptionPrice?: boolean; extraSubscriptionItem?: boolean };
+type Options = { wrongPrice?: boolean; wrongModePrice?: boolean; wrongEnvironment?: boolean; wrongOwner?: boolean; active?: boolean; paginatedActive?: boolean; locked?: boolean; failSave?: boolean; unpaid?: boolean; existing?: boolean; paginatedOpen?: boolean; unconfirmed?: boolean; noCustomer?: boolean; savedSubscription?: boolean; inactiveSubscription?: boolean; wrongSubscription?: boolean; portalPlanChange?: boolean; unknownSubscriptionPrice?: boolean; extraSubscriptionItem?: boolean };
 async function withMock(options: Options, callback: (requests: { path: string; query: string; body: string }[]) => Promise<void>) {
   const original = globalThis.fetch;
   const requests: { path: string; query: string; body: string }[] = [];
@@ -34,8 +34,18 @@ async function withMock(options: Options, callback: (requests: { path: string; q
     if (path === '/rest/v1/rpc/save_billing_subscription') return options.failSave ? json({ message: 'test database failure' }, 500) : new Response(null, { status: 204 });
     if (path === '/v1/prices/price_plus_annual') return json({ id: 'price_plus_annual', active: true, livemode: !!options.wrongModePrice, currency: 'brl', unit_amount: options.wrongPrice ? 1 : 69900, recurring: { interval: 'year', interval_count: 1 } });
     if (path === '/v1/customers' && req.method === 'POST') return json({ id: 'cus_new', livemode: false });
-    if (path === '/v1/subscriptions') return json({ data: options.active ? [{ id: 'sub_test', status: 'active' }] : [] });
-    if (path === '/v1/checkout/sessions' && req.method === 'GET') return json({ data: options.existing ? [{ id: 'cs_existing', url: 'https://checkout.stripe.com/existing', metadata: { plan: 'plus', cycle: 'annual' } }] : [] });
+    if (path === '/v1/subscriptions') {
+      if (options.paginatedActive) return url.searchParams.has('starting_after')
+        ? json({ object: 'list', data: [{ id: 'sub_active', status: 'active' }], has_more: false })
+        : json({ object: 'list', data: Array.from({ length: 100 }, (_, i) => ({ id: `sub_old_${i}`, status: 'canceled' })), has_more: true });
+      return json({ object: 'list', data: options.active ? [{ id: 'sub_test', status: 'active' }] : [], has_more: false });
+    }
+    if (path === '/v1/checkout/sessions' && req.method === 'GET') {
+      if (options.paginatedOpen) return url.searchParams.has('starting_after')
+        ? json({ object: 'list', data: [{ id: 'cs_existing', url: 'https://checkout.stripe.com/existing', metadata: { plan: 'plus', cycle: 'annual' } }], has_more: false })
+        : json({ object: 'list', data: Array.from({ length: 100 }, (_, i) => ({ id: `cs_old_${i}`, metadata: { plan: 'basico', cycle: 'monthly' } })), has_more: true });
+      return json({ object: 'list', data: options.existing ? [{ id: 'cs_existing', url: 'https://checkout.stripe.com/existing', metadata: { plan: 'plus', cycle: 'annual' } }] : [], has_more: false });
+    }
     if (path === '/v1/checkout/sessions' && req.method === 'POST') return json({ id: 'cs_test', status: 'open', url: 'https://checkout.stripe.com/test' });
     if (path === '/v1/checkout/sessions/cs_test') return json({ id: 'cs_test', status: 'complete', payment_status: options.unpaid ? 'unpaid' : 'paid', subscription: 'sub_test', client_reference_id: options.wrongOwner ? 'someone-else' : userId, metadata: { plan: 'plus', cycle: 'annual' } });
     if (path === '/v1/subscriptions/sub_test') {
@@ -101,6 +111,20 @@ Deno.test('confirmation requires both Stripe payment and active workspace entitl
     const read = requests.find(row => row.path === '/rest/v1/billing_subscriptions')!;
     assert.ok(read.query.includes('user_id=eq.'));
     assert.ok(read.query.includes('livemode=eq.false'));
+  });
+});
+Deno.test('checkout scans later Stripe pages before reusing or creating a payment', async () => {
+  await withMock({ paginatedActive: true }, async requests => {
+    assert.equal((await handleBilling(request({ action: 'create', plan: 'plus', cycle: 'annual' }))).status, 409);
+    assert.ok(requests.some(row => row.path === '/v1/subscriptions' && row.query.includes('starting_after=')));
+    assert.ok(!requests.some(row => row.path === '/v1/checkout/sessions'));
+  });
+  await withMock({ paginatedOpen: true }, async requests => {
+    const response = await handleBilling(request({ action: 'create', plan: 'plus', cycle: 'annual' }));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).url, 'https://checkout.stripe.com/existing');
+    assert.ok(requests.some(row => row.path === '/v1/checkout/sessions' && row.query.includes('starting_after=')));
+    assert.ok(!requests.some(row => row.path === '/v1/checkout/sessions' && row.body));
   });
 });
 Deno.test('billing mode mismatch blocks checkout before Stripe calls', async () => {

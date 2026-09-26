@@ -36,7 +36,12 @@ Stripe em modo de teste e uma conta ainda exibida publicamente como “Lshub”.
 - A criação de checkout live exige também uma audiência explícita. No modo
   `restricted`, só o UUID de teste autorizado pode comprar; sem configuração,
   falha fechado. A função foi publicada no projeto ainda em modo de teste e
-  14 testes simulados passaram. Não houve ativação nem cobrança live.
+  15 testes simulados passaram. Não houve ativação nem cobrança live.
+- A criação de checkout percorre todas as páginas de assinaturas e sessões
+  abertas da Stripe antes de decidir por nova cobrança, reuso ou bloqueio;
+  falha fechada após 1000 registros. Um teste simulado colocou a assinatura
+  ativa e a sessão aberta na segunda página. A função `billing` corrigida foi
+  publicada no projeto ainda em modo de teste.
 - Assinaturas e clientes Stripe de teste/live são separados. O teste Pro ativo
   não libera o painel em modo live; essa separação foi exercitada no banco.
 - Os quatro registros operacionais legados pedidos para remoção foram apagados
@@ -77,7 +82,10 @@ Stripe em modo de teste e uma conta ainda exibida publicamente como “Lshub”.
    `d957bcc`. Landing page e cadastro renderizaram, mas a rota do painel
    informou que a conexão Supabase não está configurada nesse build. A Vercel
    lista `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` em Production e
-   Preview; falta descobrir por que não chegaram ao bundle e testar novamente.
+   Preview, mas o build de `1f41338` comprovou que ambas estão ausentes ou
+   inválidas no ambiente de compilação. O build agora falha com mensagem
+   específica, sem exibir valores. Corrigir as duas variáveis e gerar novo
+   preview antes de promover o aplicativo.
    Corrigir o preview antes de levar a branch ao `main`, configurar `APP_URL` na função e
    os redirects permitidos em Supabase Auth. Testar cadastro, confirmação por
    e-mail, checkout e retorno no endereço escolhido. Retirar a proteção de
