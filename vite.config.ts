@@ -12,8 +12,12 @@ export default defineConfig(({ command, mode }) => {
     const publishableKey = env.VITE_SUPABASE_PUBLISHABLE_KEY || env.VITE_SUPABASE_ANON_KEY;
     let validUrl = false;
     try { validUrl = new URL(url).protocol === 'https:'; } catch { /* Missing or malformed URL. */ }
-    if (!validUrl || !publishableKey || /^(SUA_|SEU-|REPLACE)/i.test(publishableKey)) {
-      throw new Error('Build comercial bloqueado: configure VITE_SUPABASE_URL (HTTPS) e VITE_SUPABASE_PUBLISHABLE_KEY no ambiente de build.');
+    const invalid = [
+      !validUrl && 'VITE_SUPABASE_URL ausente ou inválida (exige HTTPS)',
+      (!publishableKey || /^(SUA_|SEU-|REPLACE)/i.test(publishableKey)) && 'VITE_SUPABASE_PUBLISHABLE_KEY ausente ou placeholder',
+    ].filter(Boolean);
+    if (invalid.length) {
+      throw new Error(`Build comercial bloqueado: ${invalid.join('; ')}.`);
     }
   }
   return {
