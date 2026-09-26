@@ -69,12 +69,16 @@ Stripe em modo de teste e uma conta ainda exibida publicamente como “Lshub”.
    Um subdomínio HTTPS estável da Vercel pode servir para o lançamento inicial,
    se for escolhido como endereço definitivo; domínio personalizado não é um
    bloqueio técnico isolado. A URL atual exige login na Vercel e, portanto,
-   não está pública para compradores. Em 26/09/2026, o aplicativo atualizado
-   estava somente no checkout Git da pasta principal: `origin/main` continha
-   apenas um README e a pasta aninhada `lsbarber` apontava para uma cópia antiga.
-   A Vercel abriu na tela de login, então ainda não foi possível confirmar qual
-   repositório, branch e diretório ela usa. Resolver essa origem, publicar o
-   frontend com fallback para as rotas da SPA, configurar `APP_URL` na função e
+   não está pública para compradores. Em 26/09/2026, a Vercel foi confirmada
+   ligada a `lsanzz/LsBarber`, branch de produção `main`, diretório raiz vazio.
+   O deployment de produção ainda usa `e7e4de6` (somente README), enquanto o
+   aplicativo atualizado foi enviado à branch
+   `codex/commercial-readiness-20260926` e compilou no preview protegido
+   `d957bcc`. Landing page e cadastro renderizaram, mas a rota do painel
+   informou que a conexão Supabase não está configurada nesse build. A Vercel
+   lista `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` em Production e
+   Preview; falta descobrir por que não chegaram ao bundle e testar novamente.
+   Corrigir o preview antes de levar a branch ao `main`, configurar `APP_URL` na função e
    os redirects permitidos em Supabase Auth. Testar cadastro, confirmação por
    e-mail, checkout e retorno no endereço escolhido. Retirar a proteção de
    acesso apenas quando o site, textos legais e suporte estiverem prontos.
